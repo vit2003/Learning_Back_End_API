@@ -18,6 +18,7 @@ using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc.Authorization;
+using AutoMapper;
 
 namespace API
 {
@@ -34,7 +35,8 @@ namespace API
         public void ConfigureServices(IServiceCollection services)
         {
             //add policy for authorize any request is sent to server
-            services.AddMvc(opt => {
+            services.AddMvc(opt =>
+            {
                 var policy = new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build();
                 opt.Filters.Add(new AuthorizeFilter(policy));
             });
@@ -43,10 +45,14 @@ namespace API
             services.AddDbContext<DataContext>(options =>
                 options.UseSqlite(Configuration.GetConnectionString("DefaultConnection")));
 
-            services.AddControllers().AddFluentValidation(cfg => {
+            services.AddControllers().AddFluentValidation(cfg =>
+            {
                 cfg.RegisterValidatorsFromAssemblyContaining<Create>();
             });
             services.AddMediatR(typeof(List.Handler).Assembly);
+
+            //add services for mapping database object to custome response object
+            services.AddAutoMapper(typeof(List.Handler));
 
             //add service for verify user
             var builder = services.AddIdentityCore<AppUser>();
@@ -54,22 +60,35 @@ namespace API
             identityBuilder.AddEntityFrameworkStores<DataContext>();
             identityBuilder.AddSignInManager<SignInManager<AppUser>>();
 
+            //add service for customize authentication
+            services.AddAuthorization(opt =>
+           {
+               opt.AddPolicy("IsActivityHost", policy =>
+               {
+                   policy.Requirements.Add(new IsHostRequirement());
+               });
+           });
+            //add handler for IAuthorizationHandler:
+            services.AddTransient<IAuthorizationHandler, IsHostRequirementHandler>();
             services.AddAuthentication();
 
             //add service for generate JWT token
             services.AddScoped<IJWTGenerator, JWTGenerator>();
+
             //add services for get username from jwt token
             services.AddScoped<IUserAccessor, UserAccessor>();
 
             //add service for verify token in any request
             var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(Configuration["TokenKey"]));
 
-            services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(opt =>{
-                opt.TokenValidationParameters = new Microsoft.IdentityModel.Tokens.TokenValidationParameters{
+            services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer(opt =>
+            {
+                opt.TokenValidationParameters = new Microsoft.IdentityModel.Tokens.TokenValidationParameters
+                {
                     ValidateIssuerSigningKey = true,
                     IssuerSigningKey = key,
                     ValidateAudience = false,
-                    ValidateIssuer = false   
+                    ValidateIssuer = false
                 };
             });
         }
@@ -80,7 +99,7 @@ namespace API
             app.UseMiddleware<ErrorHandlingMiddleWare>();
             if (env.IsDevelopment())
             {
-               // app.UseDeveloperExceptionPage();
+                // app.UseDeveloperExceptionPage();
             }
 
             app.UseHttpsRedirection();
